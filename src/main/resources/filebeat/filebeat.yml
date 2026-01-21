@@ -2,12 +2,12 @@ filebeat.inputs:
   - type: log
     enabled: true
     paths:
-      - /var/log/app/*.json
+      - /Users/vineet.kumar/IdeaProjects/log-project/logs/application.json
     
     # Parse JSON logs
     json.keys_under_root: true
     json.add_error_key: true
-    json.message_key: message
+    #json.message_key: message
     json.overwrite_keys: true
     
     # Add fields
@@ -16,8 +16,8 @@ filebeat.inputs:
     fields_under_root: true
 
 output.elasticsearch:
-  hosts: ["localhost:9200"]
-  index: "order-system-logs"
+  hosts: [ "http://localhost:9200" ]
+  index: "order-system-logs-%{+yyyy.MM.dd}"
 
 # Index template settings
 setup.template.name: "order-system-logs"

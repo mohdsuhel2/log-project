@@ -1,53 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  =============================================================================
-  Logback Configuration for Order Placement System
-  =============================================================================
-  
-  Log Flow:
-  Application → Logback → JSON File (./logs/application.json) → Filebeat → Elasticsearch → Kibana
-  
-  Kibana Queries:
-  - All logs for a request: correlationId: "abc-123"
-  - Order placement logs: message: *Order* AND level: INFO
-  - Errors: level: ERROR
-  =============================================================================
--->
 <configuration scan="true" scanPeriod="30 seconds">
-    
-    <springProperty scope="context" name="APPLICATION_NAME" source="spring.application.name" 
+
+    <!-- Application name -->
+    <springProperty scope="context"
+                    name="APPLICATION_NAME"
+                    source="spring.application.name"
                     defaultValue="order-placement-service"/>
-    
-    <!-- Log path - should match the volume mount in docker-compose -->
+
+    <!-- Absolute path is safer for Filebeat -->
     <property name="LOG_PATH" value="./logs"/>
-    
-    <property name="CONSOLE_PATTERN" 
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%X{correlationId:-NO_CORR}] [%thread] %cyan(%logger{36}) - %msg%n"/>
-    
-    <!-- Console Appender for development -->
+
+    <!-- ================= CONSOLE ================= -->
+    <property name="CONSOLE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-NO_TRACE}] [%thread] %logger{36} - %msg%n"/>
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${CONSOLE_PATTERN}</pattern>
         </encoder>
     </appender>
-    
-    <!-- 
-      JSON File Appender for Filebeat
-      Writes JSON formatted logs that Filebeat reads and sends to Elasticsearch
-    -->
-    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+    <!-- ================= JSON FILE FOR FILEBEAT ================= -->
+    <appender name="JSON_FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <!-- IMPORTANT -->
         <file>${LOG_PATH}/application.json</file>
-        
+        <append>true</append>
+        <immediateFlush>true</immediateFlush>
+
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+            <fileNamePattern>
+                ${LOG_PATH}/application.%d{yyyy-MM-dd}.%i.json.gz
+            </fileNamePattern>
             <maxHistory>7</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
-            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+
+            <timeBasedFileNamingAndTriggeringPolicy
+                    class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
                 <maxFileSize>50MB</maxFileSize>
             </timeBasedFileNamingAndTriggeringPolicy>
         </rollingPolicy>
-        
+
+        <!-- CRITICAL: NDJSON encoder -->
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+
+            <!-- ensures ONE JSON PER LINE -->
+            <includeContext>false</includeContext>
+            <includeCallerData>false</includeCallerData>
+
             <fieldNames>
                 <timestamp>@timestamp</timestamp>
                 <message>message</message>
@@ -56,47 +57,56 @@
                 <level>level</level>
                 <levelValue>[ignore]</levelValue>
             </fieldNames>
-            
-            <customFields>{"application":"${APPLICATION_NAME}","service":"order-placement"}</customFields>
-            
-            <!-- Include MDC fields for tracing -->
-            <includeMdcKeyName>correlationId</includeMdcKeyName>
+
+            <!-- static metadata -->
+            <customFields>
+                {
+                "application":"${APPLICATION_NAME}",
+                "service":"order-placement"
+                }
+            </customFields>
+
+            <!-- MDC -->
+            <includeMdcKeyName>traceId</includeMdcKeyName>
             <includeMdcKeyName>requestId</includeMdcKeyName>
             <includeMdcKeyName>method</includeMdcKeyName>
             <includeMdcKeyName>path</includeMdcKeyName>
             <includeMdcKeyName>status</includeMdcKeyName>
             <includeMdcKeyName>durationMs</includeMdcKeyName>
-            
-            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+
+            <!-- stacktrace is JSON-safe -->
+            <throwableConverter
+                    class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
                 <maxDepthPerThrowable>30</maxDepthPerThrowable>
                 <maxLength>2048</maxLength>
                 <rootCauseFirst>true</rootCauseFirst>
             </throwableConverter>
+
         </encoder>
     </appender>
-    
-    <!-- Async wrapper for better performance -->
-    <appender name="ASYNC_JSON_FILE" class="ch.qos.logback.classic.AsyncAppender">
+
+    <!-- ================= ASYNC (NON-BLOCKING) ================= -->
+    <appender name="ASYNC_JSON_FILE"
+              class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="JSON_FILE"/>
-        <queueSize>512</queueSize>
+        <queueSize>1024</queueSize>
         <discardingThreshold>0</discardingThreshold>
-        <neverBlock>true</neverBlock>
+        <neverBlock>false</neverBlock>
     </appender>
-    
-    <!-- Root logger: Console + JSON File -->
-    <root level="INFO">
+
+    <!-- ================= LOGGERS ================= -->
+    <root level="ERROR">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_JSON_FILE"/>
     </root>
-    
-    <!-- Application logger with DEBUG level -->
-    <logger name="com.telekom.orderPlacement" level="DEBUG" additivity="false">
+
+    <logger name="com.telekom.orderPlacement" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="ASYNC_JSON_FILE"/>
     </logger>
-    
-    <!-- Reduce noise from libraries -->
-    <logger name="org.apache.kafka" level="WARN"/>
-    <logger name="org.springframework" level="INFO"/>
-    
+
+    <!-- reduce noise -->
+    <logger name="org.apache.kafka" level="ERROR"/>
+    <logger name="org.springframework" level="ERROR"/>
+
 </configuration>

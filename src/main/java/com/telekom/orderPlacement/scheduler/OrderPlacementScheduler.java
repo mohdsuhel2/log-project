@@ -79,7 +79,7 @@ public class OrderPlacementScheduler {
      * Scheduled task that runs every 2 seconds.
      * Creates a cart, adds items, and places an order.
      */
-    @Scheduled(fixedRate = 2000)
+    @Scheduled(fixedRate = 10000)
     public void placeScheduledOrder() {
         if (!enabled) {
             return;

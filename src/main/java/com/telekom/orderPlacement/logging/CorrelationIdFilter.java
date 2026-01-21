@@ -41,7 +41,7 @@ import java.util.UUID;
 public class CorrelationIdFilter implements Filter {
     
     public static final String CORRELATION_ID_HEADER = "X-Correlation-ID";
-    public static final String CORRELATION_ID_MDC_KEY = "correlationId";
+    public static final String CORRELATION_ID_MDC_KEY = "traceId";
     public static final String REQUEST_ID_MDC_KEY = "requestId";
     
     @Override
