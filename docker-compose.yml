@@ -1,0 +1,168 @@
+# =============================================================================
+# Docker Compose for Order Placement System
+# =============================================================================
+# This file sets up the complete infrastructure for local development:
+# - Kafka (event streaming)
+# - Zookeeper (Kafka coordination)
+# - Elasticsearch (log storage)
+# - Kibana (log visualization)
+#
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose logs -f kafka  # View Kafka logs
+#   docker-compose down           # Stop all services
+#
+# Access:
+#   Kafka: localhost:9092
+#   Kibana: http://localhost:5601
+#   Elasticsearch: http://localhost:9200
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Zookeeper - Kafka Coordination
+  # ===========================================================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: order-system-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: echo srvr | nc localhost 2181 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================================================
+  # Kafka - Event Streaming Platform
+  # ===========================================================================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: order-system-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
+      KAFKA_LOG_RETENTION_BYTES: 1073741824  # 1GB
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: kafka-topics --bootstrap-server localhost:9092 --list || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ===========================================================================
+  # Kafka UI - Topic Management (Optional)
+  # ===========================================================================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: order-system-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: order-system
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+
+  # ===========================================================================
+  # Elasticsearch - Log Storage
+  # ===========================================================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: order-system-elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - cluster.name=order-system-cluster
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: curl -s http://localhost:9200/_cluster/health | grep -q '"status":"green\|yellow"'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Kibana - Log Visualization
+  # ===========================================================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: order-system-kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
+    healthcheck:
+      test: curl -s http://localhost:5601/api/status | grep -q '"status":{"overall":{"level":"available"'
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Logstash - Log Pipeline (Kafka to Elasticsearch)
+  # ===========================================================================
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: order-system-logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+
+# ===========================================================================
+# Volumes
+# ===========================================================================
+volumes:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  elasticsearch-data:
+
+# ===========================================================================
+# Networks
+# ===========================================================================
+networks:
+  default:
+    name: order-system-network

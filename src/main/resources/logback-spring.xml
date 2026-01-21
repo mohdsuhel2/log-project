@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  =============================================================================
+  Logback Configuration for Order Placement System
+  =============================================================================
+  
+  Log Flow:
+  Application → Logback → JSON File (./logs/application.json) → Filebeat → Elasticsearch → Kibana
+  
+  Kibana Queries:
+  - All logs for a request: correlationId: "abc-123"
+  - Order placement logs: message: *Order* AND level: INFO
+  - Errors: level: ERROR
+  =============================================================================
+-->
+<configuration scan="true" scanPeriod="30 seconds">
+    
+    <springProperty scope="context" name="APPLICATION_NAME" source="spring.application.name" 
+                    defaultValue="order-placement-service"/>
+    
+    <!-- Log path - should match the volume mount in docker-compose -->
+    <property name="LOG_PATH" value="./logs"/>
+    
+    <property name="CONSOLE_PATTERN" 
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%X{correlationId:-NO_CORR}] [%thread] %cyan(%logger{36}) - %msg%n"/>
+    
+    <!-- Console Appender for development -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_PATTERN}</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- 
+      JSON File Appender for Filebeat
+      Writes JSON formatted logs that Filebeat reads and sends to Elasticsearch
+    -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/application.json</file>
+        
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/application.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>50MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+        </rollingPolicy>
+        
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <fieldNames>
+                <timestamp>@timestamp</timestamp>
+                <message>message</message>
+                <logger>logger_name</logger>
+                <thread>thread_name</thread>
+                <level>level</level>
+                <levelValue>[ignore]</levelValue>
+            </fieldNames>
+            
+            <customFields>{"application":"${APPLICATION_NAME}","service":"order-placement"}</customFields>
+            
+            <!-- Include MDC fields for tracing -->
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <includeMdcKeyName>requestId</includeMdcKeyName>
+            <includeMdcKeyName>method</includeMdcKeyName>
+            <includeMdcKeyName>path</includeMdcKeyName>
+            <includeMdcKeyName>status</includeMdcKeyName>
+            <includeMdcKeyName>durationMs</includeMdcKeyName>
+            
+            <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                <maxLength>2048</maxLength>
+                <rootCauseFirst>true</rootCauseFirst>
+            </throwableConverter>
+        </encoder>
+    </appender>
+    
+    <!-- Async wrapper for better performance -->
+    <appender name="ASYNC_JSON_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="JSON_FILE"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+    
+    <!-- Root logger: Console + JSON File -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_JSON_FILE"/>
+    </root>
+    
+    <!-- Application logger with DEBUG level -->
+    <logger name="com.telekom.orderPlacement" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_JSON_FILE"/>
+    </logger>
+    
+    <!-- Reduce noise from libraries -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="org.springframework" level="INFO"/>
+    
+</configuration>

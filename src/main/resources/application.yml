@@ -1,0 +1,185 @@
+# =============================================================================
+# Order Placement System - Application Configuration
+# =============================================================================
+# This configuration file contains all settings for the Order Placement System.
+# Logs are sent to Kafka via Logback appender for observability.
+# =============================================================================
+
+spring:
+  application:
+    name: order-placement-service
+  
+  # Jackson JSON Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+    date-format: "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+server:
+  port: ${SERVER_PORT:8080}
+  
+  # Error handling
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: never
+    include-exception: false
+  
+  # Tomcat settings
+  tomcat:
+    connection-timeout: 20000
+    max-connections: 10000
+    threads:
+      max: 200
+      min-spare: 20
+  
+  # Enable graceful shutdown
+  shutdown: graceful
+
+# =============================================================================
+# Actuator & Monitoring
+# =============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+      base-path: /actuator
+  
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    export:
+      prometheus:
+        enabled: true
+
+# =============================================================================
+# Application-Specific Settings
+# =============================================================================
+app:
+  # Kafka settings for Logback log shipping
+  kafka:
+    # Kafka bootstrap servers for log shipping via Logback
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    # Kafka topic for application logs
+    log-topic: ${KAFKA_LOG_TOPIC:order-system.logs}
+  
+  # Cart settings
+  cart:
+    # Maximum items per cart
+    max-items: 100
+    # Cart expiration time (not implemented, for future use)
+    expiration-minutes: 1440  # 24 hours
+  
+  # Order settings
+  order:
+    # Tax rate (10%)
+    tax-rate: 0.10
+    # Idempotency key validity period (not implemented, for future use)
+    idempotency-key-ttl-hours: 24
+  
+  # Scheduler settings
+  scheduler:
+    order-placement:
+      # Enable/disable automatic order placement every 2 seconds
+      enabled: ${ORDER_SCHEDULER_ENABLED:true}
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+logging:
+  level:
+    root: INFO
+    com.telekom.orderPlacement: DEBUG
+    org.apache.kafka: WARN
+  
+  # Log file path - Filebeat reads from this directory
+  file:
+    path: ${LOG_PATH:./logs}
+
+---
+# =============================================================================
+# Local Development Profile
+# =============================================================================
+spring:
+  config:
+    activate:
+      on-profile: local
+
+server:
+  port: 8080
+
+app:
+  kafka:
+    bootstrap-servers: localhost:9092
+
+logging:
+  level:
+    com.telekom.orderPlacement: DEBUG
+
+---
+# =============================================================================
+# Production Profile (sends logs to Kafka)
+# =============================================================================
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+logging:
+  level:
+    root: WARN
+    com.telekom.orderPlacement: INFO
+
+---
+# =============================================================================
+# Kafka Profile (enables log shipping to Kafka with local)
+# =============================================================================
+# Use with: --spring.profiles.active=local,kafka
+spring:
+  config:
+    activate:
+      on-profile: kafka
+
+app:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    log-topic: order-system.logs
+
+---
+# =============================================================================
+# Test Profile
+# =============================================================================
+spring:
+  config:
+    activate:
+      on-profile: test
+
+app:
+  scheduler:
+    order-placement:
+      enabled: false
+
+logging:
+  level:
+    com.telekom.orderPlacement: DEBUG

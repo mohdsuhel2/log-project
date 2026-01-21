@@ -1,0 +1,44 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/app/*.json
+    
+    # Parse JSON logs
+    json.keys_under_root: true
+    json.add_error_key: true
+    json.message_key: message
+    json.overwrite_keys: true
+    
+    # Add fields
+    fields:
+      log_type: application
+    fields_under_root: true
+
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+  index: "order-system-logs"
+
+# Index template settings
+setup.template.name: "order-system-logs"
+setup.template.pattern: "order-system-logs-*"
+setup.template.enabled: true
+setup.template.settings:
+  index.number_of_shards: 1
+  index.number_of_replicas: 0
+
+# Disable ILM
+setup.ilm.enabled: false
+
+# Processors
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - drop_fields:
+      fields: ["agent", "ecs", "input", "host.name"]
+      ignore_missing: true
+
+# Logging
+logging.level: info
+logging.to_files: false
+logging.to_stderr: true
